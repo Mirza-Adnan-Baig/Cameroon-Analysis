@@ -1,0 +1,228 @@
+
+detach("package:XLConnect", unload=TRUE)
+detach("package:xlsx", unload=TRUE)
+
+library(openxlsx)
+
+data <- read.xlsx("/Users/kristanschneider/Meine Ablage (mathmalaria@gmail.com)/Lehre/Research in Applications/Cameroon-standard_format1.xlsx",1)
+
+
+head(data)
+
+#### Data 2001/2002
+
+Data0102 <- data[is.element(data$year,c("01","02")),]  ####years 2001 and 2002
+Data0102$year  
+
+#### Do the same for 2004/2005
+
+##
+##
+##
+
+
+### Calculate allele frequencie and MOI estimate for each marker in Data 2001/2002
+
+# first for marker dhfr.51
+
+dat <- Data0102[,c(1,3)]
+
+dat1 <- Nk(dat) ## Function Nk loaded from S1File.R
+
+out <- MLE(dat1[[2]],dat1[[1]])
+
+length(out[[5]])  # Number of alleles
+
+
+
+
+
+
+
+## heterozygosity:
+
+het<- 1- sum(out[[3]]^2)  ## heterozygosity
+
+##### Bootstrap confidence interval
+
+### Step 1 - bootstrap sample
+
+IDs <- unique(dat[,1])  ##sample IDs
+N <- out[[4]]   # sample size
+IDsB <- sample(IDs,N,replace=TRUE)  ##sampling IDs of size N with replacement
+
+datB <- dat[dat$ Sample.IDs == IDsB[1],]
+datB[,1] <- 1 ## change sample ID
+datB
+
+for(k in 2:N){
+    datB.tmp <- dat[dat$ Sample.IDs == IDsB[k],]
+    datB.tmp[,1] <- k ## change saple ID
+    datB <- rbind(datB,datB.tmp)
+}
+datB
+
+### 2nd Step: boostrap replicate 
+nkB <- Nk(datB)
+pB <- MLE(nkB[[2]],N)[[3]]
+1- sum(pB^2) ## Bootstrap replicate of hetrozygosity
+head(dat)
+
+
+
+
+### Easier way
+# recode data into N x n Matrix of 0-1  colums n different alleles, rows ... samples , entries 0... allele absent 1.... allel present
+
+dat.new <- dat[!is.na(dat[,2]),]
+alleles <- unique(dat.new[,2])
+n <- length(alleles)   # number of alleles
+IDs <- unique(dat.new[,1])
+
+Dat.new <- array(0,c(N,n))
+rownames(Dat.new) <- IDs
+for(k in 1:n){
+    samp <- dat.new[dat.new[2] == alleles[k],1]
+    Dat.new[samp,k] <- 1
+}
+
+Dat.new
+
+### Now Boostrap replicate
+B <- 1000
+
+hetB <- array(,B)
+for(b in 1:B){
+    Nkb <- colSums(Dat.new[sample(1:N,N,replace=TRUE),])
+    hetB[b] <-1- sum(MLE(Nkb,N)[[3]]^2)
+}
+   
+hetB # vector of boostrap replicates
+
+quantile(hetB,c(0.025,0.975)) ## Confidence interval
+
+
+
+
+##### Problematic case
+
+
+# first for marker dhps.581
+
+dat <- Data0102[,c(1,10)]
+
+dat1 <- Nk(dat) ## Function Nk loaded from S1File.R
+
+out <- MLE(dat1[[2]],dat1[[1]])
+
+length(out[[5]])  # Number of alleles
+
+
+
+### Next do this for all markers
+
+nmarkers <- ncol(Data0102)
+
+
+## We want to store for each marker: name, number of alleles, MLE lambda, heterozygostity, CI (lower and upper confidence point)
+
+OUT <- as.data.frame(array(, c(nmarkers-2,6)))
+OUT[,1] <- colnames(Data0102)[c(-1,-2)]
+colnames(OUT) <- c("marker","num_alleles","MLE_lambda","het","het_CI_lo","het_CI_up")
+for(j in 3:nmarkers){
+    print(j)
+    dat <- Data0102[,c(1,j)]
+
+    dat.new <- dat[!is.na(dat[,2]),]
+    alleles <- unique(dat.new[,2])
+    n <- length(alleles)   # number of alleles
+
+    OUT[j-2,2] <- n  # Number of alleles
+    dat1 <- Nk(dat.new) ## Function Nk loaded from S1File.R
+    cond <- !any(dat1[[2]]==dat1[[1]])  ## checks whetehr any Nk = N
+    if(n >1 & cond){
+        
+        out <- MLE(dat1[[2]],dat1[[1]])
+
+        OUT[j-2,3] <- out[[2]]
+        
+        ## heterozygosity:
+
+        het <- 1- sum(out[[3]]^2)  ## heterozygosity
+
+        OUT[j-2,4] <- het
+
+        ### Confidence intervals
+
+
+        IDs <- unique(dat.new[,1])
+        N <- length(IDs)
+        Dat.new <- array(0,c(N,n))
+        rownames(Dat.new) <- IDs
+        for(k in 1:n){
+            samp <- dat.new[dat.new[2] == alleles[k],1]
+            Dat.new[samp,k] <- 1
+        }
+
+        Dat.new
+
+        ### Now Boostrap replicate
+        B <- 1000
+
+        hetB <- array(,B)
+        b <- 1
+        while(b <= B ){
+            Nkb <- colSums(Dat.new[sample(1:N,N,replace=TRUE),])
+            res <- MLE(Nkb,N)
+            if(any(!is.na(res[[3]]))){
+                hetB[b] <-1- sum(res[[3]]^2)
+                b <- b+1
+            }
+            
+        }
+        
+        hetB # vector of boostrap replicates
+
+        OUT[j-2,5:6] <- quantile(hetB,c(0.025,0.975)) ## Confidence interval
+    }else{
+        if(n == 1){
+            OUT[j-2,4] <- 0
+        }
+    }
+
+
+}
+
+OUT
+plot(OUT[,4],type="l")
+
+
+hetB
+
+
+
+
+######
+
+OUT <- as.data.frame(array(, c(nmarkers-2,6)))
+OUT[,1] <- colnames(Data0102)[c(-1,-2)]
+colnames(OUT) <- c("marker","num_alleles","MLE_lambda","het","het_CI_lo","het_CI_up")
+for(j in 3:10){
+    print(j)
+    dat <- Data0102[,c(1,j)]
+
+    dat.new <- dat[!is.na(dat[,2]),]
+    alleles <- unique(dat.new[,2])
+    n <- length(alleles)   # number of alleles
+
+    OUT[j-2,2] <- n  # Number of alleles
+    dat1 <- Nk(dat.new) ## Function Nk loaded from S1File.R
+        
+        print(colnames(Data0102)[j])
+        print( MLE(dat1[[2]],dat1[[1]]))
+
+
+  
+
+
+}
